@@ -1,0 +1,22 @@
+# Caddyfile for Co-Canvas MVP
+# Replace YOUR_DOMAIN.com with your actual domain
+
+YOUR_DOMAIN.com {
+    # Frontend (React app)
+    handle {
+        reverse_proxy localhost:3000
+    }
+
+    # API requests
+    handle /api/* {
+        reverse_proxy localhost:4000
+    }
+
+    # WebSocket for Yjs real-time sync
+    handle /ws/* {
+        reverse_proxy localhost:1234
+    }
+
+    # Enable compression
+    encode gzip
+}

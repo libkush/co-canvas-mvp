@@ -53,7 +53,7 @@ interface UseCollaborationReturn {
 
 export function useCollaboration(options: UseCollaborationOptions = {}): UseCollaborationReturn {
   const defaultWsUrl = typeof window !== 'undefined' 
-    ? `ws://${window.location.hostname}:1234` 
+    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
     : 'ws://localhost:1234';
   const { roomName = 'co-canvas', wsUrl = defaultWsUrl } = options;
 
