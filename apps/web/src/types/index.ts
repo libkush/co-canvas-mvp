@@ -8,6 +8,15 @@ export interface StickyNoteData {
   height: number;
 }
 
+export type ConnectorType = 'line' | 'arrow' | 'double-arrow';
+
+export interface ConnectorData {
+  id: string;
+  fromNoteId: string;
+  toNoteId: string;
+  type: ConnectorType;
+}
+
 export interface StagePosition {
   x: number;
   y: number;

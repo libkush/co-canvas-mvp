@@ -298,9 +298,67 @@ apps/web/src/
 
 ---
 
-## 🎉 PROJECT COMPLETE!
+## Phase 5: Connectors Between Notes ✅ COMPLETED
 
-All 4 phases of Co-Canvas MVP have been successfully implemented:
+**Date Completed:** March 25, 2026
+
+### What was accomplished:
+
+1. **Connector Data Model & Types** (`apps/web/src/types/index.ts`)
+    - Added `ConnectorType` union type:
+       - `line`
+       - `arrow`
+       - `double-arrow`
+    - Added `ConnectorData` interface:
+       - `id`, `fromNoteId`, `toNoteId`, `type`
+
+2. **Real-Time Connector Sync (Yjs)** (`apps/web/src/hooks/useCollaboration.ts`)
+    - Added shared `Y.Map('connectors')` in the collaboration document
+    - Exposed connector state to the whiteboard UI
+    - Added connector actions:
+       - `addConnector()`
+       - `deleteConnector()`
+    - Connectors now sync in real-time across all clients
+
+3. **Connector Rendering & Interaction** (`apps/web/src/components/Whiteboard.tsx`)
+    - Rendered connectors using Konva `Line` and `Arrow`
+    - Added connector creation panel with modes:
+       - Line
+       - Arrow
+       - Double Arrow
+    - Added source -> destination note selection flow
+    - Added connector selection and keyboard deletion support
+    - Added automatic cleanup of attached connectors when deleting a note
+    - Added connector count in the user info panel
+
+4. **Connector UX Improvements** (`apps/web/src/components/Whiteboard.tsx`)
+    - Fixed connector endpoint geometry so line/arrow tips land on note borders
+    - Fixed top-left control panel layout so zoom/home controls keep compact width
+    - Auto-exit connector mode after creating a connection
+    - Cleared active connector helper prompt after connection is created
+
+### Files Created/Modified:
+```
+apps/web/src/
+├── types/
+│   └── index.ts                 # Added connector types/interfaces
+├── hooks/
+│   └── useCollaboration.ts      # Added Yjs connector syncing + APIs
+└── components/
+      └── Whiteboard.tsx           # Added connector UI, rendering, interactions, UX fixes
+```
+
+### How to Use Connectors:
+1. Open the whiteboard controls at top-left
+2. In the **Connect** panel, choose `Line`, `Arrow`, or `Double`
+3. Click source note, then click destination note
+4. Press `Delete/Backspace` on selected connector to remove it
+
+---
+
+## 🎉 PROJECT STATUS
+
+All 5 phases of Co-Canvas MVP have been successfully implemented:
 
 | Phase | Feature | Status |
 |-------|---------|--------|
@@ -308,6 +366,7 @@ All 4 phases of Co-Canvas MVP have been successfully implemented:
 | 2 | Infinite Canvas (Konva) | ✅ Complete |
 | 3 | Real-Time Sync (Yjs) | ✅ Complete |
 | 4 | Smart Tidy (AI) | ✅ Complete |
+| 5 | Connectors (Line / Arrow / Double Arrow) | ✅ Complete |
 
 ### Quick Start:
 ```bash

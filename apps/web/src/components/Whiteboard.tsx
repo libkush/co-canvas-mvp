@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Stage, Layer, Rect, Circle, Text, Group } from 'react-konva';
+import { Stage, Layer, Rect, Circle, Text, Group, Arrow, Line } from 'react-konva';
 import { KonvaEventObject } from 'konva/lib/Node';
 import Konva from 'konva';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,6 +9,7 @@ import { ClusterLabel } from './ClusterLabel';
 import { useCollaboration } from '../hooks';
 import {
   StickyNoteData,
+  ConnectorType,
   StagePosition,
   ClusterLabel as ClusterLabelData,
   TidyResponse,
@@ -30,6 +31,7 @@ export function Whiteboard() {
   // Collaboration hook for Yjs sync
   const {
     notes,
+    connectors,
     cursors,
     isConnected,
     isSynced,
@@ -38,11 +40,16 @@ export function Whiteboard() {
     updateNote,
     updateNotes,
     deleteNote,
+    addConnector,
+    deleteConnector,
     updateCursor,
     setUserName,
   } = useCollaboration();
 
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
+  const [connectorMode, setConnectorMode] = useState<ConnectorType | null>(null);
+  const [connectorStartNoteId, setConnectorStartNoteId] = useState<string | null>(null);
   const [stagePos, setStagePos] = useState<StagePosition>({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState(1);
   const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -75,21 +82,41 @@ export function Whiteboard() {
                        activeElement instanceof HTMLTextAreaElement;
       if (isTyping) return;
       
-      // Delete selected note
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNoteId) {
-        deleteNote(selectedNoteId);
-        setSelectedNoteId(null);
+      // Delete selected note or selected connector
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedNoteId) {
+          // Remove connectors attached to this note to avoid dangling edges.
+          for (const connector of connectors) {
+            if (connector.fromNoteId === selectedNoteId || connector.toNoteId === selectedNoteId) {
+              deleteConnector(connector.id);
+            }
+          }
+          deleteNote(selectedNoteId);
+          setSelectedNoteId(null);
+        } else if (selectedConnectorId) {
+          deleteConnector(selectedConnectorId);
+          setSelectedConnectorId(null);
+        }
       }
       
       // Deselect on Escape
       if (e.key === 'Escape') {
         setSelectedNoteId(null);
+        setSelectedConnectorId(null);
+        setConnectorStartNoteId(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNoteId, deleteNote, isEditingName]);
+  }, [
+    selectedNoteId,
+    selectedConnectorId,
+    connectors,
+    deleteConnector,
+    deleteNote,
+    isEditingName,
+  ]);
 
   // Track mouse movement for cursor awareness
   useEffect(() => {
@@ -165,6 +192,10 @@ export function Whiteboard() {
     if (clickedOnEmpty) {
       // Deselect any selected note
       setSelectedNoteId(null);
+      setSelectedConnectorId(null);
+      if (connectorStartNoteId) {
+        setConnectorStartNoteId(null);
+      }
 
       // Detect double click manually for more control
       const now = Date.now();
@@ -202,11 +233,45 @@ export function Whiteboard() {
         lastClickPos.current = pointer;
       }
     }
-  }, [stagePos, stageScale, addNote]);
+  }, [stagePos, stageScale, addNote, connectorStartNoteId]);
 
   // Handle note selection
   const handleNoteSelect = useCallback((id: string) => {
+    setSelectedConnectorId(null);
+
+    if (!connectorMode) {
+      setSelectedNoteId(id);
+      return;
+    }
+
+    // In connector mode: source note first, then destination note.
+    if (!connectorStartNoteId) {
+      setConnectorStartNoteId(id);
+      setSelectedNoteId(id);
+      return;
+    }
+
+    // Clicking the same note again cancels source selection.
+    if (connectorStartNoteId === id) {
+      setConnectorStartNoteId(null);
+      return;
+    }
+
+    addConnector({
+      id: uuidv4(),
+      fromNoteId: connectorStartNoteId,
+      toNoteId: id,
+      type: connectorMode,
+    });
+
     setSelectedNoteId(id);
+    setConnectorStartNoteId(null);
+    setConnectorMode(null);
+  }, [addConnector, connectorMode, connectorStartNoteId]);
+
+  const handleConnectorSelect = useCallback((id: string) => {
+    setSelectedConnectorId(id);
+    setSelectedNoteId(null);
   }, []);
 
   // Handle note text change
@@ -421,6 +486,55 @@ export function Whiteboard() {
             />
           ))}
 
+          {/* Connectors */}
+          {connectors.map((connector) => {
+            const fromNote = notes.find((note) => note.id === connector.fromNoteId);
+            const toNote = notes.find((note) => note.id === connector.toNoteId);
+
+            if (!fromNote || !toNote) {
+              return null;
+            }
+
+            const { points, pointerAtBeginning, pointerAtEnding } = getConnectorShape(fromNote, toNote, connector.type);
+            const isSelected = selectedConnectorId === connector.id;
+            const strokeColor = isSelected ? '#2563eb' : '#334155';
+
+            if (connector.type === 'line') {
+              return (
+                <Line
+                  key={connector.id}
+                  points={points}
+                  stroke={strokeColor}
+                  strokeWidth={isSelected ? 4 : 2}
+                  lineCap="round"
+                  lineJoin="round"
+                  hitStrokeWidth={20}
+                  onClick={() => handleConnectorSelect(connector.id)}
+                  onTap={() => handleConnectorSelect(connector.id)}
+                />
+              );
+            }
+
+            return (
+              <Arrow
+                key={connector.id}
+                points={points}
+                stroke={strokeColor}
+                fill={strokeColor}
+                strokeWidth={isSelected ? 4 : 2}
+                pointerLength={12}
+                pointerWidth={10}
+                pointerAtBeginning={pointerAtBeginning}
+                pointerAtEnding={pointerAtEnding}
+                lineCap="round"
+                lineJoin="round"
+                hitStrokeWidth={20}
+                onClick={() => handleConnectorSelect(connector.id)}
+                onTap={() => handleConnectorSelect(connector.id)}
+              />
+            );
+          })}
+
           {/* Sticky Notes */}
           {notes.map((note) => (
             <StickyNote
@@ -534,6 +648,9 @@ export function Whiteboard() {
         </div>
         <div className="text-xs text-gray-500">
           Notes: <span className="font-semibold text-gray-800">{notes.length}</span>
+          <span className="ml-2">
+            • Connectors: <span className="font-semibold text-gray-800">{connectors.length}</span>
+          </span>
           {cursors.length > 0 && (
             <span className="ml-2">
               • {cursors.length} other{cursors.length > 1 ? 's' : ''} online
@@ -543,7 +660,7 @@ export function Whiteboard() {
       </div>
 
       {/* UI Controls */}
-      <div className="absolute top-4 left-4 flex flex-col gap-2">
+      <div className="absolute top-4 left-4 flex flex-col gap-2 items-start">
         <div className="bg-white rounded-lg shadow-lg p-2 flex flex-col gap-1">
           <button
             onClick={handleZoomIn}
@@ -571,6 +688,64 @@ export function Whiteboard() {
             ⌂
           </button>
         </div>
+
+        <div className="bg-white rounded-lg shadow-lg p-2 flex flex-col gap-1">
+          <div className="text-xs font-semibold text-gray-600 px-1 py-1">Connect</div>
+          <button
+            onClick={() => {
+              setConnectorMode((current) => (current === 'line' ? null : 'line'));
+              setConnectorStartNoteId(null);
+            }}
+            className={`px-2 py-1 rounded text-xs transition-colors ${
+              connectorMode === 'line' ? 'bg-slate-800 text-white' : 'hover:bg-gray-100 text-gray-700'
+            }`}
+            title="Create line connectors"
+          >
+            Line
+          </button>
+          <button
+            onClick={() => {
+              setConnectorMode((current) => (current === 'arrow' ? null : 'arrow'));
+              setConnectorStartNoteId(null);
+            }}
+            className={`px-2 py-1 rounded text-xs transition-colors ${
+              connectorMode === 'arrow' ? 'bg-slate-800 text-white' : 'hover:bg-gray-100 text-gray-700'
+            }`}
+            title="Create single-arrow connectors"
+          >
+            Arrow
+          </button>
+          <button
+            onClick={() => {
+              setConnectorMode((current) => (current === 'double-arrow' ? null : 'double-arrow'));
+              setConnectorStartNoteId(null);
+            }}
+            className={`px-2 py-1 rounded text-xs transition-colors ${
+              connectorMode === 'double-arrow' ? 'bg-slate-800 text-white' : 'hover:bg-gray-100 text-gray-700'
+            }`}
+            title="Create double-arrow connectors"
+          >
+            Double
+          </button>
+          <button
+            onClick={() => {
+              setConnectorMode(null);
+              setConnectorStartNoteId(null);
+            }}
+            className="px-2 py-1 rounded text-xs hover:bg-gray-100 text-gray-600 transition-colors"
+            title="Exit connector mode"
+          >
+            Cancel
+          </button>
+        </div>
+
+        {connectorMode && (
+          <div className="bg-slate-900 text-white rounded-lg shadow-lg px-3 py-2 text-xs max-w-[180px]">
+            {connectorStartNoteId
+              ? 'Select destination note'
+              : `Select source note (${connectorMode})`}
+          </div>
+        )}
       </div>
 
       {/* Instructions */}
@@ -580,13 +755,79 @@ export function Whiteboard() {
           <li>• <strong>Double-click</strong> canvas to add note</li>
           <li>• <strong>Drag</strong> notes to move them</li>
           <li>• <strong>Double-click</strong> note to edit text</li>
+          <li>• <strong>Use Connect panel</strong> to draw line/arrow links</li>
           <li>• <strong>Scroll</strong> to zoom in/out</li>
           <li>• <strong>Drag</strong> canvas to pan</li>
-          <li>• <strong>Delete/Backspace</strong> to remove note</li>
+          <li>• <strong>Delete/Backspace</strong> to remove selected note/connector</li>
         </ul>
       </div>
     </div>
   );
+}
+
+function getConnectorShape(
+  fromNote: StickyNoteData,
+  toNote: StickyNoteData,
+  type: ConnectorType
+): {
+  points: number[];
+  pointerAtBeginning: boolean;
+  pointerAtEnding: boolean;
+} {
+  const fromCenterX = fromNote.x + fromNote.width / 2;
+  const fromCenterY = fromNote.y + fromNote.height / 2;
+  const toCenterX = toNote.x + toNote.width / 2;
+  const toCenterY = toNote.y + toNote.height / 2;
+
+  const dx = toCenterX - fromCenterX;
+  const dy = toCenterY - fromCenterY;
+
+  const getBorderPoint = (note: StickyNoteData, vx: number, vy: number) => {
+    const centerX = note.x + note.width / 2;
+    const centerY = note.y + note.height / 2;
+    const halfW = note.width / 2;
+    const halfH = note.height / 2;
+
+    if (vx === 0 && vy === 0) {
+      return { x: centerX, y: centerY };
+    }
+
+    // Scale ray (vx, vy) so it intersects rectangle bounds exactly.
+    const scale = 1 / Math.max(Math.abs(vx) / halfW, Math.abs(vy) / halfH);
+    return {
+      x: centerX + vx * scale,
+      y: centerY + vy * scale,
+    };
+  };
+
+  const start = getBorderPoint(fromNote, dx, dy);
+  const end = getBorderPoint(toNote, -dx, -dy);
+  const startX = start.x;
+  const startY = start.y;
+  const endX = end.x;
+  const endY = end.y;
+
+  if (type === 'double-arrow') {
+    return {
+      points: [startX, startY, endX, endY],
+      pointerAtBeginning: true,
+      pointerAtEnding: true,
+    };
+  }
+
+  if (type === 'arrow') {
+    return {
+      points: [startX, startY, endX, endY],
+      pointerAtBeginning: false,
+      pointerAtEnding: true,
+    };
+  }
+
+  return {
+    points: [startX, startY, endX, endY],
+    pointerAtBeginning: false,
+    pointerAtEnding: false,
+  };
 }
 
 // Background grid component for visual reference

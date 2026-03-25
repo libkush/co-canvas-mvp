@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { StickyNoteData, Cursor } from '../types';
+import { StickyNoteData, Cursor, ConnectorData } from '../types';
 
 // Generate a random user color
 const getRandomColor = () => {
@@ -39,6 +39,7 @@ interface UseCollaborationOptions {
 
 interface UseCollaborationReturn {
   notes: StickyNoteData[];
+  connectors: ConnectorData[];
   cursors: Cursor[];
   isConnected: boolean;
   isSynced: boolean;
@@ -47,6 +48,8 @@ interface UseCollaborationReturn {
   updateNote: (id: string, updates: Partial<StickyNoteData>) => void;
   updateNotes: (updates: Array<{ id: string; updates: Partial<StickyNoteData> }>) => void;
   deleteNote: (id: string) => void;
+  addConnector: (connector: ConnectorData) => void;
+  deleteConnector: (id: string) => void;
   updateCursor: (x: number, y: number) => void;
   setUserName: (name: string) => void;
 }
@@ -58,6 +61,7 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
   const { roomName = 'co-canvas', wsUrl = defaultWsUrl } = options;
 
   const [notes, setNotes] = useState<StickyNoteData[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorData[]>([]);
   const [cursors, setCursors] = useState<Cursor[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isSynced, setIsSynced] = useState(false);
@@ -66,6 +70,7 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
   const notesMapRef = useRef<Y.Map<StickyNoteData> | null>(null);
+  const connectorsMapRef = useRef<Y.Map<ConnectorData> | null>(null);
 
   // Initialize Yjs
   useEffect(() => {
@@ -75,6 +80,10 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
     // Create the shared notes map
     const notesMap = ydoc.getMap<StickyNoteData>('notes');
     notesMapRef.current = notesMap;
+
+    // Create the shared connectors map
+    const connectorsMap = ydoc.getMap<ConnectorData>('connectors');
+    connectorsMapRef.current = connectorsMap;
 
     // Set up IndexedDB persistence for offline support
     const indexeddbProvider = new IndexeddbPersistence(roomName, ydoc);
@@ -115,6 +124,18 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
     notesMap.observe(updateNotes);
     updateNotes(); // Initial load
 
+    // Observe connectors changes
+    const updateConnectors = () => {
+      const connectorsArray: ConnectorData[] = [];
+      connectorsMap.forEach((connector, id) => {
+        connectorsArray.push({ ...connector, id });
+      });
+      setConnectors(connectorsArray);
+    };
+
+    connectorsMap.observe(updateConnectors);
+    updateConnectors(); // Initial load
+
     // Observe awareness (cursor) changes
     const updateCursors = () => {
       const cursorList: Cursor[] = [];
@@ -141,6 +162,7 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
     // Cleanup
     return () => {
       notesMap.unobserve(updateNotes);
+      connectorsMap.unobserve(updateConnectors);
       awareness.off('change', updateCursors);
       wsProvider.destroy();
       indexeddbProvider.destroy();
@@ -192,6 +214,22 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
     notesMap.delete(id);
   }, []);
 
+  // Add a new connector
+  const addConnector = useCallback((connector: ConnectorData) => {
+    const connectorsMap = connectorsMapRef.current;
+    if (!connectorsMap) return;
+
+    connectorsMap.set(connector.id, connector);
+  }, []);
+
+  // Delete a connector
+  const deleteConnector = useCallback((id: string) => {
+    const connectorsMap = connectorsMapRef.current;
+    if (!connectorsMap) return;
+
+    connectorsMap.delete(id);
+  }, []);
+
   // Update cursor position
   const updateCursor = useCallback((x: number, y: number) => {
     const provider = providerRef.current;
@@ -214,6 +252,7 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
 
   return {
     notes,
+    connectors,
     cursors,
     isConnected,
     isSynced,
@@ -222,6 +261,8 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
     updateNote,
     updateNotes,
     deleteNote,
+    addConnector,
+    deleteConnector,
     updateCursor,
     setUserName,
   };
