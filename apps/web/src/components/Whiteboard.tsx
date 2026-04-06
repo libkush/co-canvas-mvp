@@ -14,6 +14,7 @@ import {
   ClusterLabel as ClusterLabelData,
   TidyResponse,
   STICKY_NOTE_COLORS,
+  USER_COLORS,
   CLUSTER_COLORS,
   DEFAULT_NOTE_WIDTH,
   DEFAULT_NOTE_HEIGHT,
@@ -26,6 +27,7 @@ const SCALE_BY = 1.1;
 const CLUSTER_GAP = 80;
 const NOTES_PER_ROW = 3;
 const NOTE_SPACING = 20;
+const PROFILE_ONBOARDING_KEY = 'co-canvas-profile-onboarding-seen';
 
 export function Whiteboard() {
   // Collaboration hook for Yjs sync
@@ -44,6 +46,8 @@ export function Whiteboard() {
     deleteConnector,
     updateCursor,
     setUserName,
+    setUserColor,
+    setUserProfile,
   } = useCollaboration();
 
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -54,6 +58,9 @@ export function Whiteboard() {
   const [stageScale, setStageScale] = useState(1);
   const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [isEditingName, setIsEditingName] = useState(false);
+  const [showProfileOnboarding, setShowProfileOnboarding] = useState(false);
+  const [profileDraftName, setProfileDraftName] = useState('');
+  const [profileDraftColor, setProfileDraftColor] = useState('');
   const [isTidying, setIsTidying] = useState(false);
   const [clusterLabels, setClusterLabels] = useState<ClusterLabelData[]>([]);
   
@@ -71,11 +78,25 @@ export function Whiteboard() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Keep onboarding draft fields in sync with persisted user profile.
+  useEffect(() => {
+    setProfileDraftName(userInfo.name);
+    setProfileDraftColor(userInfo.color);
+  }, [userInfo.name, userInfo.color]);
+
+  // Show one-time profile customization modal on first app open.
+  useEffect(() => {
+    const hasSeenProfileOnboarding = localStorage.getItem(PROFILE_ONBOARDING_KEY) === 'true';
+    if (!hasSeenProfileOnboarding) {
+      setShowProfileOnboarding(true);
+    }
+  }, [userInfo.id]);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't handle if editing name or typing in an input/textarea
-      if (isEditingName) return;
+      if (isEditingName || showProfileOnboarding) return;
       
       const activeElement = document.activeElement;
       const isTyping = activeElement instanceof HTMLInputElement || 
@@ -116,6 +137,7 @@ export function Whiteboard() {
     deleteConnector,
     deleteNote,
     isEditingName,
+    showProfileOnboarding,
   ]);
 
   // Track mouse movement for cursor awareness
@@ -443,6 +465,24 @@ export function Whiteboard() {
     requestAnimationFrame(animate);
   };
 
+  const closeProfileOnboarding = useCallback(() => {
+    localStorage.setItem(PROFILE_ONBOARDING_KEY, 'true');
+    setShowProfileOnboarding(false);
+  }, []);
+
+  const handleSaveProfileOnboarding = useCallback(() => {
+    if (!profileDraftName.trim()) {
+      return;
+    }
+
+    setUserProfile(profileDraftName, profileDraftColor || userInfo.color);
+    closeProfileOnboarding();
+  }, [closeProfileOnboarding, profileDraftColor, profileDraftName, setUserProfile, userInfo.color]);
+
+  const handleSkipProfileOnboarding = useCallback(() => {
+    closeProfileOnboarding();
+  }, [closeProfileOnboarding]);
+
   // Clear cluster labels when notes are manually moved
   const handleNoteDragEnd = useCallback((id: string, x: number, y: number) => {
     updateNote(id, { x, y });
@@ -646,6 +686,23 @@ export function Whiteboard() {
             </button>
           )}
         </div>
+        <div className="flex items-center gap-1.5">
+          {USER_COLORS.map((color) => {
+            const isActive = userInfo.color === color;
+            return (
+              <button
+                key={color}
+                onClick={() => setUserColor(color)}
+                className={`w-4 h-4 rounded-full border transition-transform hover:scale-110 ${
+                  isActive ? 'border-slate-900' : 'border-slate-200'
+                }`}
+                style={{ backgroundColor: color }}
+                title="Set display color"
+                aria-label={`Set display color to ${color}`}
+              />
+            );
+          })}
+        </div>
         <div className="text-xs text-gray-500">
           Notes: <span className="font-semibold text-gray-800">{notes.length}</span>
           <span className="ml-2">
@@ -761,6 +818,81 @@ export function Whiteboard() {
           <li>• <strong>Delete/Backspace</strong> to remove selected note/connector</li>
         </ul>
       </div>
+
+      {/* First-open profile setup modal */}
+      {showProfileOnboarding && (
+        <div className="absolute inset-0 z-40 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 flex flex-col gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSaveProfileOnboarding();
+            }}
+          >
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Welcome to Co-Canvas</h2>
+              <p className="text-sm text-slate-600 mt-1">
+                Choose how others see you. You can keep defaults, edit them now, or skip.
+              </p>
+            </div>
+
+            <label className="text-sm font-medium text-slate-700" htmlFor="profile-name-input">
+              Display name
+            </label>
+            <input
+              id="profile-name-input"
+              type="text"
+              value={profileDraftName}
+              onChange={(e) => setProfileDraftName(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter your display name"
+              autoFocus
+            />
+
+            <div>
+              <p className="text-sm font-medium text-slate-700 mb-2">Display color</p>
+              <div className="grid grid-cols-8 gap-2">
+                {USER_COLORS.map((color) => {
+                  const isSelected = profileDraftColor === color;
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setProfileDraftColor(color)}
+                      className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-105 ${
+                        isSelected ? 'border-slate-900' : 'border-slate-200'
+                      }`}
+                      style={{ backgroundColor: color }}
+                      aria-label={`Choose ${color} as your display color`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleSkipProfileOnboarding}
+                className="px-4 py-2 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                Skip for now
+              </button>
+              <button
+                type="submit"
+                disabled={!profileDraftName.trim()}
+                className={`px-4 py-2 text-sm rounded-lg text-white ${
+                  profileDraftName.trim()
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : 'bg-slate-400 cursor-not-allowed'
+                }`}
+              >
+                Save profile
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

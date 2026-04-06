@@ -30,6 +30,12 @@ export interface Cursor {
   color: string;
 }
 
+export interface UserInfo {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface ClusterLabel {
   name: string;
   x: number;
@@ -54,6 +60,17 @@ export const STICKY_NOTE_COLORS = [
   '#c4b5fd', // purple
   '#fdba74', // orange
   '#f9a8d4', // pink
+] as const;
+
+export const USER_COLORS = [
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#22c55e',
+  '#14b8a6',
+  '#3b82f6',
+  '#8b5cf6',
+  '#ec4899',
 ] as const;
 
 export const CLUSTER_COLORS = [

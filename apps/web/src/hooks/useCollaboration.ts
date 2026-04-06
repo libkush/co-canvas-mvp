@@ -2,12 +2,11 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { StickyNoteData, Cursor, ConnectorData } from '../types';
+import { StickyNoteData, Cursor, ConnectorData, UserInfo, USER_COLORS } from '../types';
 
 // Generate a random user color
 const getRandomColor = () => {
-  const colors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899'];
-  return colors[Math.floor(Math.random() * colors.length)];
+  return USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)];
 };
 
 // Generate a random username
@@ -18,16 +17,36 @@ const getRandomName = () => {
 };
 
 // Get or create persistent user info
-const getUserInfo = () => {
+const isValidUserInfo = (value: unknown): value is UserInfo => {
+  if (!value || typeof value !== 'object') return false;
+
+  const candidate = value as Partial<UserInfo>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.name === 'string' &&
+    typeof candidate.color === 'string'
+  );
+};
+
+const getUserInfo = (): UserInfo => {
   const stored = localStorage.getItem('co-canvas-user');
   if (stored) {
-    return JSON.parse(stored);
+    try {
+      const parsed = JSON.parse(stored);
+      if (isValidUserInfo(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // Fall through and create a new user profile.
+    }
   }
-  const userInfo = {
+
+  const userInfo: UserInfo = {
     id: crypto.randomUUID(),
     name: getRandomName(),
     color: getRandomColor(),
   };
+
   localStorage.setItem('co-canvas-user', JSON.stringify(userInfo));
   return userInfo;
 };
@@ -43,7 +62,7 @@ interface UseCollaborationReturn {
   cursors: Cursor[];
   isConnected: boolean;
   isSynced: boolean;
-  userInfo: { id: string; name: string; color: string };
+  userInfo: UserInfo;
   addNote: (note: StickyNoteData) => void;
   updateNote: (id: string, updates: Partial<StickyNoteData>) => void;
   updateNotes: (updates: Array<{ id: string; updates: Partial<StickyNoteData> }>) => void;
@@ -52,6 +71,8 @@ interface UseCollaborationReturn {
   deleteConnector: (id: string) => void;
   updateCursor: (x: number, y: number) => void;
   setUserName: (name: string) => void;
+  setUserColor: (color: string) => void;
+  setUserProfile: (name: string, color: string) => void;
 }
 
 export function useCollaboration(options: UseCollaborationOptions = {}): UseCollaborationReturn {
@@ -65,7 +86,7 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
   const [cursors, setCursors] = useState<Cursor[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isSynced, setIsSynced] = useState(false);
-  const [userInfo, setUserInfo] = useState(getUserInfo);
+  const [userInfo, setUserInfo] = useState<UserInfo>(getUserInfo);
 
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
@@ -238,17 +259,50 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
     provider.awareness.setLocalStateField('cursor', { x, y });
   }, []);
 
-  // Update user name
-  const setUserName = useCallback((name: string) => {
-    const newUserInfo = { ...userInfo, name };
-    setUserInfo(newUserInfo);
-    localStorage.setItem('co-canvas-user', JSON.stringify(newUserInfo));
-    
+  const updateAndBroadcastUserInfo = useCallback((nextUserInfo: UserInfo) => {
+    setUserInfo(nextUserInfo);
+    localStorage.setItem('co-canvas-user', JSON.stringify(nextUserInfo));
+
     const provider = providerRef.current;
     if (provider) {
-      provider.awareness.setLocalStateField('user', newUserInfo);
+      provider.awareness.setLocalStateField('user', nextUserInfo);
     }
-  }, [userInfo]);
+  }, []);
+
+  // Update user name
+  const setUserName = useCallback((name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return;
+    }
+
+    updateAndBroadcastUserInfo({
+      ...userInfo,
+      name: trimmedName,
+    });
+  }, [updateAndBroadcastUserInfo, userInfo]);
+
+  // Update user color
+  const setUserColor = useCallback((color: string) => {
+    updateAndBroadcastUserInfo({
+      ...userInfo,
+      color,
+    });
+  }, [updateAndBroadcastUserInfo, userInfo]);
+
+  // Update user profile (name + color)
+  const setUserProfile = useCallback((name: string, color: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return;
+    }
+
+    updateAndBroadcastUserInfo({
+      ...userInfo,
+      name: trimmedName,
+      color,
+    });
+  }, [updateAndBroadcastUserInfo, userInfo]);
 
   return {
     notes,
@@ -265,5 +319,7 @@ export function useCollaboration(options: UseCollaborationOptions = {}): UseColl
     deleteConnector,
     updateCursor,
     setUserName,
+    setUserColor,
+    setUserProfile,
   };
 }
